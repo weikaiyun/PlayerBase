@@ -75,7 +75,7 @@ public class App extends Application {
         //use default NetworkEventProducer.
         PlayerConfig.setUseDefaultNetworkEventProducer(true);
 
-        PlayerConfig.playRecord(true);
+        PlayerConfig.playRecord(false);
 
         PlayRecordManager.setRecordConfig(
                 new PlayRecordManager.RecordConfig.Builder()
