@@ -16,6 +16,8 @@ import android.widget.Toast;
 import com.kk.taurus.avplayer.App;
 import com.kk.taurus.avplayer.R;
 import com.kk.taurus.avplayer.cover.ControllerCover;
+import com.kk.taurus.avplayer.cover.DanmuCover;
+import com.kk.taurus.avplayer.event_producer.DanmuDataProducer;
 import com.kk.taurus.avplayer.play.DataInter;
 import com.kk.taurus.avplayer.play.ReceiverGroupManager;
 import com.kk.taurus.avplayer.utils.DataUtils;
@@ -53,6 +55,8 @@ public class BaseVideoViewActivity extends AppCompatActivity implements
     private float mVolumeLeft = 0.5f;
     private float mVolumeRight = 0.5f;
 
+    private int mRotation;
+
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -71,10 +75,15 @@ public class BaseVideoViewActivity extends AppCompatActivity implements
         updateVideo(false);
 
         mReceiverGroup = ReceiverGroupManager.get().getReceiverGroup(this);
+        //添加弹幕cover
+        mReceiverGroup.addReceiver(DataInter.ReceiverKey.KEY_DANMU_COVER, new DanmuCover(this));
         mReceiverGroup.getGroupValue().putBoolean(DataInter.Key.KEY_CONTROLLER_TOP_ENABLE, true);
         mVideoView.setReceiverGroup(mReceiverGroup);
         mVideoView.setEventHandler(onVideoViewEventHandler);
         mVideoView.setOnPlayerEventListener(this);
+
+        //添加弹幕数据生产者
+        mVideoView.getSuperContainer().addEventProducer(new DanmuDataProducer());
 
         mVideoView.setVolume(mVolumeLeft, mVolumeRight);
     }
@@ -248,6 +257,10 @@ public class BaseVideoViewActivity extends AppCompatActivity implements
                 break;
             case SettingItem.CODE_TEST_UPDATE_RENDER:
                 mVideoView.updateRender();
+                break;
+            case SettingItem.CODE_TEST_RENDER_ROTATION:
+                mRotation += 90;
+                mVideoView.getRender().setVideoRotation(mRotation%360);
                 break;
         }
     }

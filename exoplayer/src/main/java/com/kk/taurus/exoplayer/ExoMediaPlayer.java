@@ -27,6 +27,7 @@ import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.DefaultRenderersFactory;
 import com.google.android.exoplayer2.ExoPlaybackException;
 import com.google.android.exoplayer2.Format;
+import com.google.android.exoplayer2.MediaItem;
 import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.RenderersFactory;
@@ -48,6 +49,7 @@ import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 import com.google.android.exoplayer2.upstream.RawResourceDataSource;
+import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.Util;
 import com.google.android.exoplayer2.video.VideoListener;
 import com.kk.taurus.playerbase.config.AppContextAttach;
@@ -65,6 +67,8 @@ import com.kk.taurus.playerbase.player.BaseInternalPlayer;
 import com.kk.taurus.playerbase.player.IPlayer;
 
 import java.util.HashMap;
+
+import static com.google.android.exoplayer2.util.Assertions.checkNotNull;
 
 public class ExoMediaPlayer extends BaseInternalPlayer {
 
@@ -181,15 +185,17 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
         //handle timed text source
         TimedTextSource timedTextSource = dataSource.getTimedTextSource();
         if(timedTextSource!=null){
-            Format format = Format.createTextSampleFormat(null, timedTextSource.getMimeType(), timedTextSource.getFlag(), null);
+            Format format = new Format.Builder().setSampleMimeType(timedTextSource.getMimeType()).setSelectionFlags(timedTextSource.getFlag()).build();
             MediaSource timedTextMediaSource = new SingleSampleMediaSource.Factory(new DefaultDataSourceFactory(mAppContext,
-                    userAgent))
-                    .createMediaSource(Uri.parse(timedTextSource.getPath()), format, C.TIME_UNSET);
+                    userAgent)).createMediaSource(new MediaItem.Subtitle(
+                    Uri.parse(timedTextSource.getPath()),
+                    checkNotNull(format.sampleMimeType), format.language, format.selectionFlags), C.TIME_UNSET);
             //merge MediaSource and timedTextMediaSource.
             mediaSource = new MergingMediaSource(mediaSource, timedTextMediaSource);
         }
 
-        mInternalPlayer.prepare(mediaSource);
+        mInternalPlayer.setMediaSource(mediaSource);
+        mInternalPlayer.prepare();
         mInternalPlayer.setPlayWhenReady(false);
 
         Bundle sourceBundle = BundlePool.obtain();
@@ -200,17 +206,21 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
 
     private MediaSource getMediaSource(Uri uri, com.google.android.exoplayer2.upstream.DataSource.Factory dataSourceFactory){
         int contentType = Util.inferContentType(uri);
+        MediaItem mediaItem = new MediaItem.Builder()
+                .setUri(uri)
+                .setMimeType(MimeTypes.APPLICATION_MPD)
+                .build();
         switch (contentType) {
             case C.TYPE_DASH:
-                return new DashMediaSource.Factory(dataSourceFactory).createMediaSource(uri);
+                return new DashMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem);
             case C.TYPE_SS:
-                return new SsMediaSource.Factory(dataSourceFactory).createMediaSource(uri);
+                return new SsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem);
             case C.TYPE_HLS:
-                return new HlsMediaSource.Factory(dataSourceFactory).createMediaSource(uri);
+                return new HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem);
             case C.TYPE_OTHER:
             default:
                 // This is the MediaSource representing the media to be played.
-                return new ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(uri);
+                return new ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem);
         }
     }
 
@@ -290,8 +300,13 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
 
     @Override
     public void start(int msc) {
-        mStartPos = msc;
-        start();
+        if(getState() == STATE_PREPARED && msc > 0){
+            start();
+            seekTo(msc);
+        }else{
+            mStartPos = msc;
+            start();
+        }
     }
 
     @Override
@@ -361,6 +376,7 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
         @Override
         public void onVideoSizeChanged(int width, int height,
                                        int unappliedRotationDegrees, float pixelWidthHeightRatio) {
+            PLog.d(TAG, "onVideoSizeChanged : width = " + width + ", height = " + height + ", rotation = " + unappliedRotationDegrees);
             mVideoWidth = width;
             mVideoHeight = height;
             Bundle bundle = BundlePool.obtain();
@@ -387,7 +403,7 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
         }
 
         @Override
-        public void onLoadingChanged(boolean isLoading) {
+        public void onIsLoadingChanged(boolean isLoading) {
             int bufferPercentage = mInternalPlayer.getBufferedPercentage();
             if(!isLoading){
                 submitBufferingUpdate(bufferPercentage, null);
@@ -396,42 +412,14 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
         }
 
         @Override
-        public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
-            PLog.d(TAG,"onPlayerStateChanged : playWhenReady = "+ playWhenReady
-                    + ", playbackState = " + playbackState);
-
-            if(!isPreparing){
-                if(playWhenReady){
-                    if(getState()==STATE_PREPARED){
-                        updateStatus(IPlayer.STATE_STARTED);
-                        submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_AUDIO_RENDER_START, null);
-                    }else{
-                        updateStatus(IPlayer.STATE_STARTED);
-                        submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_RESUME, null);
-                    }
-                }else{
-                    updateStatus(IPlayer.STATE_PAUSED);
-                    submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_PAUSE, null);
-                }
-            }
-
+        public void onPlaybackStateChanged(int playbackState) {
+            PLog.d(TAG,"onPlayerStateChanged : playbackState = " + playbackState);
             if(isPreparing){
                 switch (playbackState){
                     case Player.STATE_READY:
                         isPreparing = false;
-                        Format format = mInternalPlayer.getVideoFormat();
-                        Bundle bundle = BundlePool.obtain();
-                        if(format!=null){
-                            bundle.putInt(EventKey.INT_ARG1, format.width);
-                            bundle.putInt(EventKey.INT_ARG2, format.height);
-                        }
                         updateStatus(IPlayer.STATE_PREPARED);
-                        submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_PREPARED, bundle);
-
-                        if(playWhenReady){
-                            updateStatus(STATE_STARTED);
-                            submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_AUDIO_RENDER_START, null);
-                        }
+                        submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_PREPARED, null);
 
                         if(mStartPos > 0 && mInternalPlayer.getDuration() > 0){
                             mInternalPlayer.seekTo(mStartPos);
@@ -440,7 +428,6 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
                         break;
                 }
             }
-
             if(isBuffering){
                 switch (playbackState){
                     case Player.STATE_READY:
@@ -480,7 +467,25 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
                         break;
                 }
             }
+        }
 
+        @Override
+        public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
+            PLog.d(TAG,"onPlayerStateChanged : playWhenReady = "+ playWhenReady + ", reason = " + reason);
+            if(!isPreparing){
+                if(playWhenReady){
+                    if(getState()==STATE_PREPARED){
+                        updateStatus(IPlayer.STATE_STARTED);
+                        submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_AUDIO_RENDER_START, null);
+                    }else{
+                        updateStatus(IPlayer.STATE_STARTED);
+                        submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_RESUME, null);
+                    }
+                }else{
+                    updateStatus(IPlayer.STATE_PAUSED);
+                    submitPlayerEvent(OnPlayerEventListener.PLAYER_EVENT_ON_PAUSE, null);
+                }
+            }
         }
 
         @Override
@@ -490,6 +495,7 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
 
         @Override
         public void onPlayerError(ExoPlaybackException error) {
+            updateStatus(IPlayer.STATE_ERROR);
             if(error==null){
                 submitErrorEvent(OnErrorEventListener.ERROR_EVENT_UNKNOWN, null);
                 return;
@@ -507,10 +513,22 @@ public class ExoMediaPlayer extends BaseInternalPlayer {
                     submitErrorEvent(OnErrorEventListener.ERROR_EVENT_IO, bundle);
                     break;
                 case ExoPlaybackException.TYPE_RENDERER:
-                    submitErrorEvent(OnErrorEventListener.ERROR_EVENT_COMMON, bundle);
+                    submitErrorEvent(OnErrorEventListener.ERROR_EVENT_RENDER, bundle);
                     break;
                 case ExoPlaybackException.TYPE_UNEXPECTED:
                     submitErrorEvent(OnErrorEventListener.ERROR_EVENT_UNKNOWN, bundle);
+                    break;
+                case ExoPlaybackException.TYPE_REMOTE:
+                    submitErrorEvent(OnErrorEventListener.ERROR_EVENT_REMOTE, bundle);
+                    break;
+                case ExoPlaybackException.TYPE_OUT_OF_MEMORY:
+                    submitErrorEvent(OnErrorEventListener.ERROR_EVENT_OUT_OF_MEMORY, bundle);
+                    break;
+                case ExoPlaybackException.TYPE_TIMEOUT:
+                    submitErrorEvent(OnErrorEventListener.ERROR_EVENT_TIMED_OUT, bundle);
+                    break;
+                default:
+                    submitErrorEvent(OnErrorEventListener.ERROR_EVENT_COMMON, bundle);
                     break;
             }
         }

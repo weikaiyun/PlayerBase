@@ -44,9 +44,9 @@ public class ViewOvalRectOutlineProvider extends ViewOutlineProvider {
         if(mRect!=null){
             selfRect = mRect;
         }else{
-            Rect rect = new Rect();
-            view.getGlobalVisibleRect(rect);
-            selfRect = RectUtils.getOvalRect(rect);
+            selfRect = new Rect();
+            view.getDrawingRect(selfRect);
+            selfRect = RectUtils.getOvalRect(selfRect);
         }
         outline.setOval(selfRect);
     }

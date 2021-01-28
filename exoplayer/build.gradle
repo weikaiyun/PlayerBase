@@ -17,6 +17,7 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         compileOptions{
+            sourceCompatibility JavaVersion.VERSION_1_8
             targetCompatibility JavaVersion.VERSION_1_8
         }
     }
@@ -34,6 +35,6 @@ dependencies {
     api "com.google.android.exoplayer:exoplayer-dash:$exoplayersdkVersion"
     api "com.google.android.exoplayer:exoplayer-hls:$exoplayersdkVersion"
     api "com.google.android.exoplayer:exoplayer-smoothstreaming:$exoplayersdkVersion"
-//    api "com.kk.taurus.playerbase:playerbase:$playerbaseVersion"
-    api project(':playerbase')
+    api "com.kk.taurus.playerbase:playerbase:$playerbaseVersion"
+//    api project(':playerbase')
 }
